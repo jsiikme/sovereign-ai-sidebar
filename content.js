@@ -28,6 +28,8 @@
   const DEFAULT_PLACEHOLDER = T("placeholder");
   const MAX_HISTORY = 8;      // messages conservés dans chaque appel API
   const RENDER_MIN_MS = 120;  // cadence max de re-rendu du Markdown en streaming
+  const MAX_CACHED_PAGES = 16;
+  const CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
 
   /* Réglages : chargés avant la première action (settingsReady est attendu
    * dans le handler de messages) et rafraîchis via storage.onChanged. */
@@ -53,6 +55,70 @@
   let activeStream = null; // un seul flux à la fois
   let awaitingTerm = false;
   let suppressSave = false; // vrai pendant l'agrandissement (transitoire, non mémorisé)
+
+  /* ---------- Cache de contexte par page ----------
+   * Map { url: { conversation, ts } } persistée dans storage.local.
+   * LRU par ordre d'insertion (delete + réinsertion), TTL 30 min.
+   */
+  function contextKey() {
+    return location.origin + location.pathname + location.search;
+  }
+
+  let cache = {};
+  const cacheReady = browser.storage.local.get("euriaContextCache").then((v) => {
+    cache = v.euriaContextCache || {};
+  });
+  let currentUrl = contextKey();
+  let persistTimer = null;
+
+  function persistCache() {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      browser.storage.local.set({ euriaContextCache: cache });
+    }, 400);
+  }
+
+  function touchCache(key) {
+    const entry = cache[key];
+    if (!entry) return;
+    delete cache[key];
+    cache[key] = entry;
+  }
+
+  function evictIfNeeded() {
+    const keys = Object.keys(cache);
+    if (keys.length <= MAX_CACHED_PAGES) return;
+    const toRemove = keys.slice(0, keys.length - MAX_CACHED_PAGES);
+    for (const k of toRemove) delete cache[k];
+  }
+
+  function loadFromCache(key) {
+    const entry = cache[key];
+    if (!entry) return null;
+    if (Date.now() - entry.ts > CACHE_TTL_MS) {
+      delete cache[key];
+      persistCache();
+      return null;
+    }
+    touchCache(key);
+    return entry;
+  }
+
+  function saveToCache(key, conv) {
+    cache[key] = {
+      conversation: conv.slice(-MAX_HISTORY * 2),
+      ts: Date.now()
+    };
+    touchCache(key);
+    evictIfNeeded();
+    persistCache();
+  }
+
+  function clearFromCache(key) {
+    if (!cache[key]) return;
+    delete cache[key];
+    persistCache();
+  }
 
   /* ---------- Extraction du contenu de la page ----------
    * Une seule passe descendante : les sous-arbres exclus (nav, footer…) sont
@@ -579,6 +645,39 @@
     ui.langChips.hidden = true;
     ui.input.value = "";
     clearTermMode();
+  }
+
+  /* Restaure un fil de discussion depuis le cache : recrée les bulles
+   * utilisateur et assistant (réponse finale uniquement, pas de raisonnement). */
+  function restoreConversation(entries) {
+    resetConversation();
+    conversation = entries.slice(-MAX_HISTORY * 2);
+    for (const { role, content } of conversation) {
+      if (role === "user") {
+        addUserMessage(content);
+      } else if (role === "assistant") {
+        const { msgEl, answerEl } = addAssistantBubble();
+        answerEl.innerHTML = renderMarkdown(content);
+        createMetaRow(msgEl, "Copier", async (e) => {
+          const btn = e.currentTarget;
+          await navigator.clipboard.writeText(content);
+          btn.textContent = "Copié ✓";
+          setTimeout(() => (btn.textContent = "Copier"), 1500);
+        });
+      }
+    }
+    scrollToBottom();
+  }
+
+  /* Tente de restaurer le contexte de la page courante depuis le cache.
+   * Sans effet si la conversation est déjà peuplée ou si rien n'est caché. */
+  function tryRestoreFromCache() {
+    if (conversation.length) return;
+    cacheReady.then(() => {
+      if (conversation.length) return;
+      const entry = loadFromCache(currentUrl);
+      if (entry) restoreConversation(entry.conversation);
+    });
   }
 
   /* ---------- Fil de discussion ---------- */

@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Euria Everywhere (Unofficial)",
+  "version": "1.4.0",
+  "description": "Unofficial extension: summarize, extract key points, look up a term and translate any web page via Infomaniak's AI API — data stays in Europe. Not affiliated with Infomaniak.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "euria-everywhere@jsiikme",
+      "strict_min_version": "127.0"
+    }
+  },
+  "icons": {
+    "48": "icons/euria.svg",
+    "96": "icons/euria.svg"
+  },
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://api.infomaniak.com/*"
+  ],
+  "background": {
+    "scripts": ["defaults.js", "background.js"]
+  },
+  "action": {
+    "default_title": "Euria Everywhere (Unofficial)",
+    "default_icon": "icons/euria.svg"
+  },
+  "commands": {
+    "toggle-panel": {
+      "suggested_key": { "default": "Alt+Shift+E" },
+      "description": "Open/close the Euria panel"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  }
+}

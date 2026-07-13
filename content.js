@@ -48,6 +48,24 @@
     if (changes.lastLang?.newValue) settings.lastLang = changes.lastLang.newValue;
   });
 
+  const nativePush = history.pushState.bind(history);
+  history.pushState = function (...args) {
+    const r = nativePush(...args);
+    scheduleUrlCheck();
+    return r;
+  };
+  const nativeReplace = history.replaceState.bind(history);
+  history.replaceState = function (...args) {
+    const r = nativeReplace(...args);
+    scheduleUrlCheck();
+    return r;
+  };
+  addEventListener("popstate", scheduleUrlCheck);
+  addEventListener("hashchange", scheduleUrlCheck);
+  setInterval(() => {
+    if (contextKey() !== currentUrl) scheduleUrlCheck();
+  }, 1000);
+
   let host = null;
   let ui = {};
   let conversation = [];   // uniquement les échanges ABOUTIS {role, content}
@@ -118,6 +136,28 @@
     if (!cache[key]) return;
     delete cache[key];
     persistCache();
+  }
+
+  /* ---------- Détection des changements d'URL (SPA) ----------
+   * Hooks sur pushState/replaceState + popstate + hashchange + polling 1 s.
+   * scheduleUrlCheck debounce à 100 ms pour éviter les déclenchements multiples.
+   */
+  let urlCheckTimer = null;
+  function scheduleUrlCheck() {
+    clearTimeout(urlCheckTimer);
+    urlCheckTimer = setTimeout(onUrlChange, 100);
+  }
+
+  function onUrlChange() {
+    const newUrl = contextKey();
+    if (currentUrl === newUrl) return;
+    if (conversation.length) saveToCache(currentUrl, conversation);
+    currentUrl = newUrl;
+    pageContext = null;
+    if (!host) return;
+    const entry = loadFromCache(currentUrl);
+    if (entry) restoreConversation(entry.conversation);
+    else resetConversation();
   }
 
   /* ---------- Extraction du contenu de la page ----------

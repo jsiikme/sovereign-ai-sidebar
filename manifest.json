@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Euria Everywhere (Unofficial)",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Extension non officielle : résumer, extraire les points clés, rechercher un terme et traduire n'importe quelle page web via l'API AI d'Infomaniak. Non affiliée à Infomaniak.",
   "browser_specific_settings": {
     "gecko": {

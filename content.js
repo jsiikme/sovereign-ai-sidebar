@@ -48,6 +48,7 @@
   let pageContext = null;  // contenu de la page, envoyé comme message user
   let activeStream = null; // un seul flux à la fois
   let awaitingTerm = false;
+  let suppressSave = false; // vrai pendant l'agrandissement (transitoire, non mémorisé)
 
   /* ---------- Extraction du contenu de la page ----------
    * Une seule passe descendante : les sous-arbres exclus (nav, footer…) sont
@@ -478,18 +479,21 @@
     let saveTimer = null;
 
     const saveRect = () => {
-      if (!saveArmed) return;
+      if (!saveArmed || suppressSave) return;
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
+        if (suppressSave) return;
         const r = panel.getBoundingClientRect();
         browser.storage.local.set({
-          panelRect: { left: r.left, top: r.top, width: r.width, height: r.height }
+          panelBox: { left: r.left, top: r.top, width: r.width, height: r.height }
         });
       }, 400);
     };
 
-    browser.storage.local.get("panelRect").then((v) => {
-      applyRect(panel, v.panelRect);
+    // Clé "panelBox" (l'ancienne "panelRect" est ignorée : auto-réparation
+    // des positions agrandies mémorisées par erreur avant le correctif).
+    browser.storage.local.get("panelBox").then((v) => {
+      applyRect(panel, v.panelBox);
       new ResizeObserver(() => {
         if (skipNextObservation) { skipNextObservation = false; return; }
         saveArmed = true; // un resize après restauration = geste utilisateur
@@ -518,21 +522,23 @@
     });
   }
 
-  /* Agrandir/réduire : tailles inline (cohérent avec drag/redimensionnement). */
+  /* Agrandir/réduire : va-et-vient ancré à DROITE (ne couvre pas le contenu de
+   * gauche), en mémoire seulement — l'état agrandi n'est jamais persisté. */
   let rectBeforeExpand = null;
   function toggleExpand() {
-    const r = ui.panel.getBoundingClientRect();
+    suppressSave = true;
     if (rectBeforeExpand) {
       applyRect(ui.panel, rectBeforeExpand);
       rectBeforeExpand = null;
     } else {
+      const r = ui.panel.getBoundingClientRect();
       rectBeforeExpand = { left: r.left, top: r.top, width: r.width, height: r.height };
-      applyRect(ui.panel, {
-        left: 24, top: 24,
-        width: Math.min(720, window.innerWidth - 48),
-        height: window.innerHeight - 48
-      });
+      const w = Math.min(720, window.innerWidth - 48);
+      const h = window.innerHeight - 48;
+      applyRect(ui.panel, { left: window.innerWidth - w - 24, top: 24, width: w, height: h });
     }
+    // Laisse passer le debounce de sauvegarde (400 ms) avant de réarmer.
+    setTimeout(() => { suppressSave = false; }, 700);
   }
 
   function showPanel() {
